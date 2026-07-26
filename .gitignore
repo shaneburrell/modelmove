@@ -10,7 +10,6 @@ coverage.html
 *.prof
 *.test
 
-
 # Local scratch
 /tmp/
 *.manifest
@@ -18,6 +17,7 @@ coverage.html
 
 # Editors and OS
 .DS_Store
+.cursor/
 .idea/
 .vscode/
 *.swp
