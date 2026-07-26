@@ -48,11 +48,32 @@ directory as a first-class object:
 
 ## Install
 
+### Homebrew
+
+```bash
+brew install shaneburrell/tap/modelmove
+```
+
+The formula is maintained in [`shaneburrell/homebrew-tap`](https://github.com/shaneburrell/homebrew-tap) and tracks GitHub Releases.
+
+### Prebuilt binaries
+
+Download from [Releases](https://github.com/shaneburrell/modelmove/releases) for:
+
+- macOS (Apple Silicon & Intel)
+- Linux (amd64 & arm64)
+- Windows (amd64)
+- FreeBSD (amd64)
+
+### From source
+
+Requires [Go 1.26+](https://go.dev/dl/).
+
 ```bash
 go install github.com/shaneburrell/modelmove/cmd/modelmove@latest
 ```
 
-Or grab a static binary from the [releases page](https://github.com/shaneburrell/modelmove/releases).
+### On the remote host
 
 For SSH transfers, `modelmove` must also be on the remote host's `PATH` — the
 local side drives the transfer and the remote side runs `modelmove
