@@ -1,0 +1,23 @@
+# Build output
+/bin/
+/dist/
+/modelmove
+/modelmove.exe
+
+# Coverage and profiles
+coverage.out
+coverage.html
+*.prof
+*.test
+
+
+# Local scratch
+/tmp/
+*.manifest
+*.mmm
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+*.swp

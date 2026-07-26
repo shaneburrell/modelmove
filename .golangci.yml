@@ -1,0 +1,86 @@
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errcheck
+    - errorlint
+    - goconst
+    - gocritic
+    - govet
+    - ineffassign
+    - misspell
+    - nakedret
+    - nilerr
+    - noctx
+    - prealloc
+    - revive
+    - staticcheck
+    - unconvert
+    - unparam
+    - unused
+    - wastedassign
+
+  settings:
+    errcheck:
+      # Best-effort cleanup and progress output is deliberately unchecked.
+      exclude-functions:
+        - (*os.File).Close
+        - (io.Closer).Close
+        - fmt.Fprintf
+        - fmt.Fprintln
+    goconst:
+      min-len: 4
+      min-occurrences: 4
+    gocritic:
+      disabled-checks:
+        - ifElseChain
+    revive:
+      rules:
+        - name: exported
+        - name: package-comments
+        - name: var-naming
+        - name: indent-error-flow
+        - name: errorf
+        - name: context-as-argument
+    staticcheck:
+      checks:
+        - all
+
+  exclusions:
+    generated: lax
+    presets:
+      - comments
+      - std-error-handling
+    rules:
+      # Tests trade some rigour for readability.
+      - path: _test\.go
+        linters:
+          - errcheck
+          - goconst
+          - gocritic
+          - prealloc
+          - unparam
+      # The gear table is a fixed constant, not a magic-number smell.
+      - path: internal/chunk/gear\.go
+        linters:
+          - gocritic
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/shaneburrell/modelmove
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
