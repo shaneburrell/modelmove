@@ -540,7 +540,7 @@ func (r *Receiver) cleanStage() {
 	var dirs []string
 	_ = filepath.WalkDir(stageRoot, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
-			return nil
+			return err
 		}
 		if d.IsDir() {
 			dirs = append(dirs, path)
