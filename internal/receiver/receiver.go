@@ -307,42 +307,43 @@ func (r *Receiver) EndFile() (*FileResult, error) {
 		return nil, errors.New("receiver: no file is open")
 	}
 	r.active = nil
-	defer a.f.Close()
 
 	res := &FileResult{Path: a.plan.Path, Action: a.plan.Action, Size: a.file.Size}
-
-	if err := r.fill(a); err != nil {
-		a.f.Close()
+	fail := func(err error) (*FileResult, error) {
+		if a.f != nil {
+			a.f.Close()
+			a.f = nil
+		}
 		res.Status = "failed"
 		res.Error = err.Error()
 		r.results = append(r.results, *res)
 		return res, err
+	}
+
+	if err := r.fill(a); err != nil {
+		return fail(err)
 	}
 	res.Received = a.received
 	res.Reused = a.reused
 
 	if r.opt.Verify {
 		if err := verifyStage(a); err != nil {
-			res.Status = "failed"
-			res.Error = err.Error()
-			r.results = append(r.results, *res)
-			return res, err
+			return fail(err)
 		}
 		res.Verified = true
 	}
 
 	if err := a.f.Sync(); err != nil {
-		res.Status = "failed"
-		res.Error = err.Error()
-		r.results = append(r.results, *res)
-		return res, err
+		return fail(err)
 	}
 	if err := a.f.Close(); err != nil {
+		a.f = nil
 		res.Status = "failed"
 		res.Error = err.Error()
 		r.results = append(r.results, *res)
 		return res, err
 	}
+	a.f = nil
 
 	mode := os.FileMode(a.file.Mode).Perm()
 	if mode == 0 {
@@ -527,23 +528,45 @@ func (r *Receiver) Abort() {
 	r.readers.closeAll()
 }
 
-// cleanStage removes staging files that are no longer needed, leaving any
-// partial file from a failed transfer in place for the next resume.
+// cleanStage removes empty directories left under the staging root after successful
+// renames, leaving any partial .part file from a failed transfer for resume.
 func (r *Receiver) cleanStage() {
 	stageRoot := filepath.Join(r.root, manifest.StateDir, "stage")
-	entries, err := os.ReadDir(stageRoot)
-	if err != nil {
+	if _, err := os.Stat(stageRoot); err != nil {
 		return
 	}
-	if len(entries) == 0 {
-		os.Remove(stageRoot)
-		return
+	// Collect dirs depth-first, then remove empty ones from the deepest upward
+	// so nested staging paths like stage/a/b/ do not linger after a rename.
+	var dirs []string
+	_ = filepath.WalkDir(stageRoot, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() {
+			dirs = append(dirs, path)
+		}
+		return nil
+	})
+	for i := len(dirs) - 1; i >= 0; i-- {
+		entries, err := os.ReadDir(dirs[i])
+		if err != nil || len(entries) > 0 {
+			continue
+		}
+		_ = os.Remove(dirs[i])
 	}
-	pruneEmptyDirs(stageRoot, r.root)
+}
+
+// underRoot reports whether dir is root or a path strictly inside it.
+func underRoot(dir, root string) bool {
+	if dir == root {
+		return true
+	}
+	sep := string(os.PathSeparator)
+	return strings.HasPrefix(dir, root+sep)
 }
 
 func pruneEmptyDirs(dir, stop string) {
-	for strings.HasPrefix(dir, stop) && dir != stop {
+	for underRoot(dir, stop) && dir != stop {
 		entries, err := os.ReadDir(dir)
 		if err != nil || len(entries) > 0 {
 			return

@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/shaneburrell/modelmove/internal/chunk"
@@ -606,5 +607,70 @@ func TestNestedDirectoriesAreCreated(t *testing.T) {
 	apply(t, src, dst, defaults(dst))
 	if string(read(t, dst, "a/b/c/deep.safetensors")) != string(read(t, src, "a/b/c/deep.safetensors")) {
 		t.Error("the nested file was not written correctly")
+	}
+}
+
+// TestPlanFailsWhenDestUnhashable ensures a destination hashing failure is not
+// silently treated as a --fast skip (which would leave wrong bytes in place and
+// still write a success manifest).
+func TestPlanFailsWhenDestUnhashable(t *testing.T) {
+	src := t.TempDir()
+	write(t, src, "model.safetensors", randomBytes(64<<10, 21))
+	m := buildManifest(t, src)
+	dst := filepath.Join(t.TempDir(), "out")
+	applyManifest(t, m, src, dst, defaults(dst))
+
+	// Corrupt per-file chunker parameters so HashPath rejects them. Manifest
+	// structural validation does not check these relationships, so Plan still
+	// reaches destination hashing — and must fail instead of skipping.
+	m.Files[0].Chunker.MinSize = 8 << 20
+	m.Files[0].Chunker.AvgSize = 1 << 20
+	m.Files[0].Chunker.MaxSize = 4 << 20
+
+	r, err := New(defaults(dst))
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := r.Plan(context.Background(), m)
+	if err == nil {
+		t.Fatal("Plan succeeded; want an error when the destination file cannot be hashed")
+	}
+	if plan != nil {
+		t.Fatal("Plan should not return a plan alongside a hashing error")
+	}
+	if !strings.Contains(err.Error(), "cannot hash destination file") {
+		t.Fatalf("error = %v, want it to mention cannot hash destination file", err)
+	}
+}
+
+func TestCleanStageRemovesNestedEmptyDirs(t *testing.T) {
+	src := t.TempDir()
+	write(t, src, "a/b/c/deep.safetensors", randomBytes(32<<10, 22))
+	dst := filepath.Join(t.TempDir(), "out")
+	apply(t, src, dst, defaults(dst))
+	stage := filepath.Join(dst, manifest.StateDir, "stage")
+	if _, err := os.Stat(stage); !os.IsNotExist(err) {
+		t.Fatalf("staging directory left behind after nested transfer: %v", err)
+	}
+}
+
+func TestUnderRoot(t *testing.T) {
+	root := filepath.Clean(string(filepath.Separator) + filepath.Join("tmp", "mod"))
+	sibling := filepath.Clean(string(filepath.Separator) + filepath.Join("tmp", "mod2"))
+	parent := filepath.Dir(root)
+	cases := []struct {
+		dir  string
+		want bool
+	}{
+		{root, true},
+		{filepath.Join(root, "a"), true},
+		{sibling, false},
+		{filepath.Join(sibling, "a"), false},
+		{parent, false},
+	}
+	for _, tc := range cases {
+		if got := underRoot(tc.dir, root); got != tc.want {
+			t.Errorf("underRoot(%q, %q) = %v, want %v", tc.dir, root, got, tc.want)
+		}
 	}
 }

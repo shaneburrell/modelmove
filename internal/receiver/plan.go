@@ -74,12 +74,14 @@ func (p *Plan) Work() []FilePlan {
 
 // destFile is one file discovered at the destination during planning.
 type destFile struct {
-	rel     string
-	abs     string
-	size    int64
-	modTime int64
-	sig     chunk.Signature
-	hashed  bool
+	rel         string
+	abs         string
+	size        int64
+	modTime     int64
+	sig         chunk.Signature
+	hashed      bool
+	trustedFast bool  // size+mtime match under --fast; content was not re-hashed
+	hashErr     error // non-nil when hashing was attempted and failed
 }
 
 // Plan inspects the destination and computes what has to move. It is the
@@ -128,6 +130,7 @@ func (r *Receiver) Plan(ctx context.Context, m *manifest.Manifest) (*Plan, error
 		// --fast trusts size and mtime for files the manifest already
 		// describes, which skips reading the whole destination model.
 		if r.opt.Fast && inManifest && want.Size == e.Size && want.ModTime.UnixNano() == df.modTime {
+			df.trustedFast = true
 			byPath[e.Path] = df
 			continue
 		}
@@ -138,6 +141,14 @@ func (r *Receiver) Plan(ctx context.Context, m *manifest.Manifest) (*Plan, error
 	r.hashDest(ctx, candidates, wanted)
 	if err := ctx.Err(); err != nil {
 		return nil, err
+	}
+	for _, df := range byPath {
+		if df.hashErr == nil {
+			continue
+		}
+		if _, inManifest := wanted[df.rel]; inManifest {
+			return nil, fmt.Errorf("receiver: cannot hash destination file %s: %w", df.rel, df.hashErr)
+		}
 	}
 
 	plan := &Plan{Root: r.root}
@@ -157,7 +168,7 @@ func (r *Receiver) Plan(ctx context.Context, m *manifest.Manifest) (*Plan, error
 			if r.opt.Dedupe && df.hashed {
 				r.addSignature(r.global, df.abs, df.sig)
 			}
-		case !df.hashed:
+		case df.trustedFast:
 			// Trusted by --fast: index it using the manifest's own chunk list.
 			r.addManifestChunks(r.global, df.abs, want)
 		case df.sig.Digest == want.Digest && df.sig.Size == want.Size:
@@ -193,7 +204,7 @@ func (r *Receiver) Plan(ctx context.Context, m *manifest.Manifest) (*Plan, error
 		switch {
 		case !exists:
 			fp.Action = ActionCopy
-		case !df.hashed:
+		case df.trustedFast:
 			fp.Action = ActionSkip
 		case df.sig.Digest == f.Digest && df.sig.Size == f.Size:
 			fp.Action = ActionSkip
@@ -311,6 +322,7 @@ func (r *Receiver) hashDest(ctx context.Context, files []*destFile, wanted map[s
 			}
 			sig, err := chunk.HashPath(ctx, df.abs, opt, chunk.Config{Jobs: 2})
 			if err != nil {
+				df.hashErr = err
 				r.opt.warnf("cannot read destination file %s: %v", df.rel, err)
 				return
 			}
