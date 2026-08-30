@@ -133,3 +133,6 @@ jobs:
         run: make build
       - name: Round trip a synthetic model over the local and SSH transports
         run: ./scripts/e2e.sh
+      - name: Round trip over live sshd (skips when localhost SSH is unavailable)
+        if: matrix.os == 'ubuntu-latest'
+        run: ./scripts/e2e-live.sh
