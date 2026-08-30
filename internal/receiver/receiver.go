@@ -299,6 +299,9 @@ func (r *Receiver) Chunk(d chunk.Digest, data []byte) error {
 	return nil
 }
 
+// statusFailed marks a per-file result whose transfer or verification broke.
+const statusFailed = "failed"
+
 // EndFile fills any chunks that were not sent from local sources, verifies the
 // result and, under per-file atomicity, replaces the original.
 func (r *Receiver) EndFile() (*FileResult, error) {
@@ -314,7 +317,7 @@ func (r *Receiver) EndFile() (*FileResult, error) {
 			a.f.Close()
 			a.f = nil
 		}
-		res.Status = "failed"
+		res.Status = statusFailed
 		res.Error = err.Error()
 		r.results = append(r.results, *res)
 		return res, err
@@ -338,7 +341,7 @@ func (r *Receiver) EndFile() (*FileResult, error) {
 	}
 	if err := a.f.Close(); err != nil {
 		a.f = nil
-		res.Status = "failed"
+		res.Status = statusFailed
 		res.Error = err.Error()
 		r.results = append(r.results, *res)
 		return res, err
@@ -366,7 +369,7 @@ func (r *Receiver) EndFile() (*FileResult, error) {
 		r.pending = append(r.pending, sf)
 	} else {
 		if err := r.commit(sf); err != nil {
-			res.Status = "failed"
+			res.Status = statusFailed
 			res.Error = err.Error()
 			r.results = append(r.results, *res)
 			return res, err
