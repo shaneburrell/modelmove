@@ -20,7 +20,7 @@ if ! "${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" true >/dev/null 2>&1; then
 fi
 
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"; "${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "rm -rf /tmp/modelmove-live-$$" >/dev/null 2>&1 || true' EXIT
+trap 'rm -rf "$WORK"; "${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "rm -rf /tmp/modelmove-live-$$ /tmp/modelmove-live-resume-$$" >/dev/null 2>&1 || true' EXIT
 
 REMOTE_DST="/tmp/modelmove-live-$$"
 SRC="$WORK/src"
@@ -80,6 +80,52 @@ print(f"    live ssh: moved {sent} of {total} bytes")
 PY
 
 "${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "'$BIN' verify '$REMOTE_DST' --no-progress"
+
+echo "==> e2e-live: corruption is detected and repaired over live sshd"
+"${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "python3 - '$REMOTE_DST/model-00002-of-00002.safetensors'" <<'PY'
+import sys
+p = sys.argv[1]
+d = bytearray(open(p, "rb").read())
+d[1_000_000:1_000_032] = b"C" * 32
+open(p, "wb").write(bytes(d))
+PY
+set +e
+"${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "'$BIN' verify '$REMOTE_DST' --no-progress" > "$WORK/verify.out" 2>&1
+code=$?
+set -e
+[ "$code" -eq 2 ] || fail "verify exited $code on a corrupt model, want 2"
+grep -q "bad chunk" "$WORK/verify.out" || fail "verify did not locate the bad chunk"
+
+"$BIN" sync "$SRC" "$TARGET" --remote-bin "$BIN" --no-progress
+"${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "'$BIN' verify '$REMOTE_DST' --no-progress"
+
+echo "==> e2e-live: resume reuses a planted staging file"
+RESUME_DST="/tmp/modelmove-live-resume-$$"
+RESUME_TARGET="${REMOTE_USER}@${REMOTE_HOST}:${RESUME_DST}"
+python3 - "$SRC/model-00001-of-00002.safetensors" "$WORK/partial.part" <<'PY'
+import sys
+src, dest = sys.argv[1], sys.argv[2]
+data = open(src, "rb").read()
+partial = bytearray(len(data))
+# First 2 MiB is enough for the 4 MiB shard to show reuse without
+# needing the FastCDC cut points on this side.
+partial[:2_000_000] = data[:2_000_000]
+open(dest, "wb").write(partial)
+PY
+"${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "mkdir -p '$RESUME_DST/.modelmove/stage'"
+scp -o BatchMode=yes -o ConnectTimeout=2 "$WORK/partial.part" \
+  "${REMOTE_USER}@${REMOTE_HOST}:${RESUME_DST}/.modelmove/stage/model-00001-of-00002.safetensors.part"
+"$BIN" copy "$SRC" "$RESUME_TARGET" --remote-bin "$BIN" --json --no-progress > "$WORK/resume.json"
+python3 - "$WORK/resume.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+total = r["plan"]["total_bytes"]
+need = r["plan"]["need_bytes"]
+assert need < total, f"resume planned {need} of {total} bytes; staged prefix should have been reused"
+print(f"    live ssh resume: planned {need} of {total} bytes")
+PY
+"${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "'$BIN' verify '$RESUME_DST' --no-progress"
+"${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "rm -rf '$RESUME_DST'"
 
 echo
 echo "e2e-live: all checks passed"

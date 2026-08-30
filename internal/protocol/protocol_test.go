@@ -512,3 +512,89 @@ func TestCancelledContextStopsClient(t *testing.T) {
 		t.Error("Finish ignored a cancelled context")
 	}
 }
+
+func TestResumeOverPipes(t *testing.T) {
+	src := t.TempDir()
+	payload := randomBytes(400<<10, 6)
+	writeFile(t, src, "model.safetensors", payload)
+	m, err := scan.Build(context.Background(), scan.Options{Root: src, Tool: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dst := filepath.Join(t.TempDir(), "out")
+	stage := filepath.Join(dst, manifest.StateDir, "stage", "model.safetensors.part")
+	if err := os.MkdirAll(filepath.Dir(stage), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	partial := make([]byte, len(payload))
+	f := m.Files[0]
+	var filled int
+	for _, c := range f.Chunks {
+		if filled >= len(payload)/2 {
+			break
+		}
+		copy(partial[c.Offset:], payload[c.Offset:c.End()])
+		filled += int(c.Length)
+	}
+	if err := os.WriteFile(stage, partial, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	client, done := pipePair(t, ServerOptions{Root: dst, Tool: "modelmove/test"})
+	plan, _ := runTransfer(t, client, m, src, defaultRequest())
+	done()
+
+	if plan.NeedBytes >= int64(len(payload)) {
+		t.Errorf("resume sent %d of %d bytes; staged chunks should have been kept", plan.NeedBytes, len(payload))
+	}
+	got, err := os.ReadFile(filepath.Join(dst, "model.safetensors"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatal("the resumed file does not match the source")
+	}
+}
+
+func TestCorruptionRepairOverPipes(t *testing.T) {
+	src := sourceDir(t)
+	dst := filepath.Join(t.TempDir(), "out")
+	m, err := scan.Build(context.Background(), scan.Options{Root: src, Tool: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client, done := pipePair(t, ServerOptions{Root: dst, Tool: "modelmove/test"})
+	runTransfer(t, client, m, src, defaultRequest())
+	done()
+
+	rel := "model-00002-of-00002.safetensors"
+	path := filepath.Join(dst, rel)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data[len(data)/2] ^= 0xff
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	client, done = pipePair(t, ServerOptions{Root: dst, Tool: "modelmove/test"})
+	plan, _ := runTransfer(t, client, m, src, defaultRequest())
+	done()
+	if plan.NeedBytes == 0 {
+		t.Fatal("repair planned no bytes after dest corruption")
+	}
+	want, err := os.ReadFile(filepath.Join(src, rel))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(want, got) {
+		t.Fatal("repair did not restore the source bytes")
+	}
+}
