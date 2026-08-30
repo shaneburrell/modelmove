@@ -263,7 +263,13 @@ make check      # everything CI runs
 The local and SSH transports are complete and covered end to end. SSH
 planning-phase manifests are gzip-compressed when both sides advertise
 the `manifest-gzip` feature (protocol version stays 1, so older helpers
-still work). Planned:
+still work).
+
+For models that start life on the Hugging Face Hub, see
+[docs/hub-workflow.md](docs/hub-workflow.md): download locally with the
+`hf` CLI, then transfer with `copy` / `sync` / `verify` / `diff`.
+
+Planned:
 
 - QUIC transport for high-latency links
 - Direct Hugging Face Hub and Ollama registry sources
