@@ -13,6 +13,9 @@ Entry: `cmd/modelmove`. License: MIT.
 Stay on **synthetic fixtures** (a few MiB) in this lab. Do not download
 multi-gigabyte checkpoints onto the 50 GiB lab disk.
 
+Hub models are downloaded locally with the `hf` CLI and then moved as
+plain directories — see `docs/hub-workflow.md`.
+
 ## Build and test
 
 ```sh
