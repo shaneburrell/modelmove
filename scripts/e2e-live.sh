@@ -138,7 +138,7 @@ st = os.stat(p)
 d = bytearray(open(p, "rb").read())
 d[1_000_000] ^= 0xFF
 open(p, "wb").write(d)
-os.utime(p, (st.st_atime, st.st_mtime))
+os.utime(p, ns=(st.st_atime_ns, st.st_mtime_ns))
 PY
 "$BIN" sync "$SRC" "$FAST_TARGET" --fast --remote-bin "$BIN" --json --no-progress > "$WORK/fast.json"
 python3 - "$WORK/fast.json" <<'PY'
