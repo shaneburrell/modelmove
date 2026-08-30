@@ -14,12 +14,13 @@ import (
 
 // Client drives a remote helper over a pair of pipes.
 type Client struct {
-	r      *bufio.Reader
-	w      *bufio.Writer
-	closer io.Closer
-	tool   string
-	warn   func(format string, args ...any)
-	root   string
+	r            *bufio.Reader
+	w            *bufio.Writer
+	closer       io.Closer
+	tool         string
+	warn         func(format string, args ...any)
+	root         string
+	manifestGzip bool
 }
 
 // ClientOptions configures a Client.
@@ -40,7 +41,12 @@ func NewClient(r io.Reader, w io.Writer, closer io.Closer, opt ClientOptions) (*
 		warn:   opt.Warn,
 		root:   opt.Root,
 	}
-	if err := c.send(MsgHello, Hello{Version: Version, Tool: opt.Tool, Root: opt.Root}); err != nil {
+	if err := c.send(MsgHello, Hello{
+		Version:  Version,
+		Tool:     opt.Tool,
+		Root:     opt.Root,
+		Features: []string{FeatureManifestGzip},
+	}); err != nil {
 		return nil, err
 	}
 	payload, err := c.expect(MsgHelloAck)
@@ -55,6 +61,7 @@ func NewClient(r io.Reader, w io.Writer, closer io.Closer, opt ClientOptions) (*
 		return nil, fmt.Errorf("protocol: remote speaks version %d, this build speaks %d", ack.Version, Version)
 	}
 	c.root = ack.Root
+	c.manifestGzip = hasFeature(ack.Features, FeatureManifestGzip)
 	return c, nil
 }
 
@@ -113,7 +120,17 @@ func (c *Client) Plan(ctx context.Context, m *manifest.Manifest, req PlanRequest
 	if err := manifest.EncodeBinary(&buf, m); err != nil {
 		return nil, err
 	}
-	if err := WriteFrame(c.w, MsgManifest, buf.Bytes()); err != nil {
+	payload := buf.Bytes()
+	typ := MsgManifest
+	if c.manifestGzip {
+		gz, err := gzipBytes(payload)
+		if err != nil {
+			return nil, err
+		}
+		payload = gz
+		typ = MsgManifestGzip
+	}
+	if err := WriteFrame(c.w, typ, payload); err != nil {
 		return nil, err
 	}
 	if err := c.w.Flush(); err != nil {

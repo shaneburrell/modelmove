@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -73,7 +74,12 @@ func (s *server) run(ctx context.Context) error {
 	if hello.Version != Version {
 		return fmt.Errorf("protocol: client speaks version %d, this helper speaks %d", hello.Version, Version)
 	}
-	if err := s.reply(MsgHelloAck, HelloAck{Version: Version, Tool: s.opt.Tool, Root: root}); err != nil {
+	if err := s.reply(MsgHelloAck, HelloAck{
+		Version:  Version,
+		Tool:     s.opt.Tool,
+		Root:     root,
+		Features: []string{FeatureManifestGzip},
+	}); err != nil {
 		return err
 	}
 
@@ -141,14 +147,21 @@ func (s *server) handlePlan(ctx context.Context, payload []byte) error {
 		return fmt.Errorf("protocol: this helper was not started with --allow-delete")
 	}
 
-	t, n, err := ReadHeader(s.r)
+	t, raw, err := ReadFrame(s.r)
 	if err != nil {
 		return err
 	}
-	if t != MsgManifest {
+	switch t {
+	case MsgManifestGzip:
+		raw, err = gunzipBytes(raw)
+		if err != nil {
+			return err
+		}
+	case MsgManifest:
+	default:
 		return fmt.Errorf("protocol: expected manifest, got %s", t)
 	}
-	m, err := manifest.DecodeBinary(io.LimitReader(s.r, int64(n)))
+	m, err := manifest.DecodeBinary(bytes.NewReader(raw))
 	if err != nil {
 		return err
 	}

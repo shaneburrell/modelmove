@@ -149,7 +149,7 @@ func TestErrorFrame(t *testing.T) {
 
 func TestMsgTypeString(t *testing.T) {
 	for _, m := range []MsgType{MsgHello, MsgHelloAck, MsgPlanReq, MsgManifest, MsgPlanResp,
-		MsgFileBegin, MsgChunk, MsgFileEnd, MsgFileResult, MsgFinish, MsgSummary, MsgError, MsgWarn} {
+		MsgFileBegin, MsgChunk, MsgFileEnd, MsgFileResult, MsgFinish, MsgSummary, MsgError, MsgWarn, MsgManifestGzip} {
 		if m.String() == "" {
 			t.Errorf("MsgType(%d) has no name", m)
 		}
@@ -510,6 +510,59 @@ func TestCancelledContextStopsClient(t *testing.T) {
 	}
 	if _, err := client.Finish(ctx); err == nil {
 		t.Error("Finish ignored a cancelled context")
+	}
+}
+
+func TestGzipManifestRoundTrip(t *testing.T) {
+	src := sourceDir(t)
+	m, err := scan.Build(context.Background(), scan.Options{Root: src, Tool: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw bytes.Buffer
+	if err := manifest.EncodeBinary(&raw, m); err != nil {
+		t.Fatal(err)
+	}
+	gz, err := gzipBytes(raw.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(gz) == 0 || bytes.Equal(gz, raw.Bytes()) {
+		t.Fatal("gzip did not change the payload")
+	}
+	got, err := gunzipBytes(gz)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, raw.Bytes()) {
+		t.Fatal("gunzip did not restore the manifest bytes")
+	}
+}
+
+func TestManifestGzipOverPipes(t *testing.T) {
+	src := sourceDir(t)
+	dst := filepath.Join(t.TempDir(), "out")
+	m, err := scan.Build(context.Background(), scan.Options{Root: src, Tool: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client, done := pipePair(t, ServerOptions{Root: dst, Tool: "modelmove/test"})
+	if !client.manifestGzip {
+		done()
+		t.Fatal("handshake did not negotiate manifest-gzip")
+	}
+	runTransfer(t, client, m, src, defaultRequest())
+	done()
+	want, err := os.ReadFile(filepath.Join(src, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(dst, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(want, got) {
+		t.Fatal("gzip plan transfer did not write the source file")
 	}
 }
 
