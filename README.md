@@ -260,11 +260,14 @@ make check      # everything CI runs
 
 ## Status and roadmap
 
-The local and SSH transports are complete and covered end to end. Planned:
+The local and SSH transports are complete and covered end to end. SSH
+planning-phase manifests are gzip-compressed when both sides advertise
+the `manifest-gzip` feature (protocol version stays 1, so older helpers
+still work). Planned:
 
 - QUIC transport for high-latency links
 - Direct Hugging Face Hub and Ollama registry sources
-- Optional compression for the metadata files, where it actually pays
+- Optional compression for metadata *files* in transit, where it actually pays
 
 ## License
 

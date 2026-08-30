@@ -29,18 +29,24 @@ type MsgType uint8
 const (
 	MsgHello MsgType = iota + 1
 	MsgHelloAck
-	MsgPlanReq    // JSON PlanRequest
-	MsgManifest   // binary manifest
-	MsgPlanResp   // JSON receiver.Plan
-	MsgFileBegin  // JSON FileBegin
-	MsgChunk      // 32-byte digest followed by the payload
-	MsgFileEnd    // empty
-	MsgFileResult // JSON receiver.FileResult
-	MsgFinish     // empty
-	MsgSummary    // JSON receiver.Summary
-	MsgError      // JSON Error
-	MsgWarn       // JSON Warn
+	MsgPlanReq      // JSON PlanRequest
+	MsgManifest     // binary manifest
+	MsgPlanResp     // JSON receiver.Plan
+	MsgFileBegin    // JSON FileBegin
+	MsgChunk        // 32-byte digest followed by the payload
+	MsgFileEnd      // empty
+	MsgFileResult   // JSON receiver.FileResult
+	MsgFinish       // empty
+	MsgSummary      // JSON receiver.Summary
+	MsgError        // JSON Error
+	MsgWarn         // JSON Warn
+	MsgManifestGzip // gzip-compressed binary manifest (negotiated)
 )
+
+// FeatureManifestGzip is advertised in Hello/HelloAck when both ends can
+// compress the planning-phase manifest. Version stays 1 so older helpers
+// still work; they simply omit the feature and receive MsgManifest.
+const FeatureManifestGzip = "manifest-gzip"
 
 func (t MsgType) String() string {
 	switch t {
@@ -52,6 +58,8 @@ func (t MsgType) String() string {
 		return "plan-req"
 	case MsgManifest:
 		return "manifest"
+	case MsgManifestGzip:
+		return "manifest-gzip"
 	case MsgPlanResp:
 		return "plan-resp"
 	case MsgFileBegin:
@@ -77,16 +85,27 @@ func (t MsgType) String() string {
 
 // Hello is the first frame the client sends.
 type Hello struct {
-	Version int    `json:"version"`
-	Tool    string `json:"tool"`
-	Root    string `json:"root"`
+	Version  int      `json:"version"`
+	Tool     string   `json:"tool"`
+	Root     string   `json:"root"`
+	Features []string `json:"features,omitempty"`
 }
 
 // HelloAck is the helper's reply.
 type HelloAck struct {
-	Version int    `json:"version"`
-	Tool    string `json:"tool"`
-	Root    string `json:"root"`
+	Version  int      `json:"version"`
+	Tool     string   `json:"tool"`
+	Root     string   `json:"root"`
+	Features []string `json:"features,omitempty"`
+}
+
+func hasFeature(features []string, name string) bool {
+	for _, f := range features {
+		if f == name {
+			return true
+		}
+	}
+	return false
 }
 
 // PlanRequest carries the wire-safe subset of the receiver options.
