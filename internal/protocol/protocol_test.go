@@ -557,6 +557,33 @@ func TestResumeOverPipes(t *testing.T) {
 	}
 }
 
+func TestPlanFailsWhenDestUnhashableOverPipes(t *testing.T) {
+	src := t.TempDir()
+	writeFile(t, src, "model.safetensors", randomBytes(64<<10, 21))
+	m, err := scan.Build(context.Background(), scan.Options{Root: src, Tool: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "out")
+	client, done := pipePair(t, ServerOptions{Root: dst, Tool: "modelmove/test"})
+	runTransfer(t, client, m, src, defaultRequest())
+	done()
+
+	m.Files[0].Chunker.MinSize = 8 << 20
+	m.Files[0].Chunker.AvgSize = 1 << 20
+	m.Files[0].Chunker.MaxSize = 4 << 20
+
+	client, done = pipePair(t, ServerOptions{Root: dst, Tool: "modelmove/test"})
+	_, err = client.Plan(context.Background(), m, defaultRequest())
+	done()
+	if err == nil {
+		t.Fatal("Plan succeeded; want the dest hash failure over the wire")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("cannot hash destination file")) {
+		t.Fatalf("error = %v, want it to mention cannot hash destination file", err)
+	}
+}
+
 func TestCorruptionRepairOverPipes(t *testing.T) {
 	src := sourceDir(t)
 	dst := filepath.Join(t.TempDir(), "out")

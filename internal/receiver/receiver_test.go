@@ -381,6 +381,50 @@ func TestFastTrustsSizeAndModTime(t *testing.T) {
 	}
 }
 
+// TestFastSkipsWhenContentDiffersButSizeAndMtimeMatch documents the
+// --fast contract: an in-place edit that keeps size and mtime is skipped
+// and only verify (or a non-fast sync) will notice.
+func TestFastSkipsWhenContentDiffersButSizeAndMtimeMatch(t *testing.T) {
+	src := t.TempDir()
+	payload := randomBytes(100<<10, 31)
+	write(t, src, "model.safetensors", payload)
+	dst := filepath.Join(t.TempDir(), "out")
+	apply(t, src, dst, defaults(dst))
+
+	path := filepath.Join(dst, "model.safetensors")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mtime := info.ModTime()
+	bad := append([]byte{}, payload...)
+	bad[len(bad)/2] ^= 0xff
+	if err := os.WriteFile(path, bad, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(path, mtime, mtime); err != nil {
+		t.Fatal(err)
+	}
+
+	opt := defaults(dst)
+	opt.Fast = true
+	plan, _ := apply(t, src, dst, opt)
+	if plan.NeedBytes != 0 {
+		t.Errorf("--fast planned %d bytes after a same-size in-place edit; want 0 (trusted skip)", plan.NeedBytes)
+	}
+	if plan.SkipFiles != 1 {
+		t.Errorf("SkipFiles = %d, want 1", plan.SkipFiles)
+	}
+	if string(read(t, dst, "model.safetensors")) != string(bad) {
+		t.Fatal("--fast must not rewrite a file it trusted")
+	}
+
+	plan, _ = apply(t, src, dst, defaults(dst))
+	if plan.NeedBytes == 0 {
+		t.Fatal("a full rehash should have planned a repair")
+	}
+}
+
 func TestVerificationCatchesBadChunk(t *testing.T) {
 	src := t.TempDir()
 	write(t, src, "model.safetensors", randomBytes(100<<10, 8))

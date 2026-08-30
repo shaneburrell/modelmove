@@ -20,7 +20,7 @@ if ! "${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" true >/dev/null 2>&1; then
 fi
 
 WORK=$(mktemp -d)
-trap 'rm -rf "$WORK"; "${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "rm -rf /tmp/modelmove-live-$$ /tmp/modelmove-live-resume-$$" >/dev/null 2>&1 || true' EXIT
+trap 'rm -rf "$WORK"; "${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "rm -rf /tmp/modelmove-live-$$ /tmp/modelmove-live-resume-$$ /tmp/modelmove-live-fast-$$" >/dev/null 2>&1 || true' EXIT
 
 REMOTE_DST="/tmp/modelmove-live-$$"
 SRC="$WORK/src"
@@ -126,6 +126,33 @@ print(f"    live ssh resume: planned {need} of {total} bytes")
 PY
 "${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "'$BIN' verify '$RESUME_DST' --no-progress"
 "${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "rm -rf '$RESUME_DST'"
+
+echo "==> e2e-live: --fast skips a same-size in-place edit (verify still catches it)"
+FAST_DST="/tmp/modelmove-live-fast-$$"
+FAST_TARGET="${REMOTE_USER}@${REMOTE_HOST}:${FAST_DST}"
+"$BIN" copy "$SRC" "$FAST_TARGET" --remote-bin "$BIN" --no-progress
+"${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "python3 - '$FAST_DST/model-00002-of-00002.safetensors'" <<'PY'
+import os, sys
+p = sys.argv[1]
+st = os.stat(p)
+d = bytearray(open(p, "rb").read())
+d[1_000_000] ^= 0xFF
+open(p, "wb").write(d)
+os.utime(p, (st.st_atime, st.st_mtime))
+PY
+"$BIN" sync "$SRC" "$FAST_TARGET" --fast --remote-bin "$BIN" --json --no-progress > "$WORK/fast.json"
+python3 - "$WORK/fast.json" <<'PY'
+import json, sys
+r = json.load(open(sys.argv[1]))
+sent = r["summary"]["bytes_received"]
+assert sent == 0, f"--fast sent {sent} bytes after a same-size edit; want 0"
+PY
+set +e
+"${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "'$BIN' verify '$FAST_DST' --no-progress" > "$WORK/fast-verify.out" 2>&1
+code=$?
+set -e
+[ "$code" -eq 2 ] || fail "verify exited $code after --fast skip, want 2"
+"${SSH[@]}" "${REMOTE_USER}@${REMOTE_HOST}" "rm -rf '$FAST_DST'"
 
 echo
 echo "e2e-live: all checks passed"

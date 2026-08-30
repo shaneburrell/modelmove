@@ -231,6 +231,12 @@ the entire run, which finds more reuse when a checkpoint has been re-sharded.
 trust its timestamps. Without it, `modelmove` re-hashes the destination, which
 is both the integrity check and the thing that finds reusable chunks.
 
+`--fast` will skip a file whose size and mtime still match the source even if
+the bytes have changed (an in-place edit, `touch -r`, some networked
+filesystems). That is the contract, not a bug: the next `verify` exits 2, and
+a sync without `--fast` repairs the drifted chunks. Run `verify` after a
+`--fast` resync if you need to know the destination still matches.
+
 ## Exit codes
 
 | Code | Meaning |
