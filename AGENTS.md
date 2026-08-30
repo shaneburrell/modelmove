@@ -28,18 +28,14 @@ make build
 
 `make check` runs fmt-check, vet, lint, and test (not race, cover, or e2e).
 
-After any change that touches copy/sync/verify/SSH, also run a **live
-sshd** round trip on this machine (not the fake SSH in `scripts/e2e.sh`):
+After any change that touches copy/sync/verify/SSH, also run the live
+sshd smoke (skips when `ubuntu@127.0.0.1` is unreachable):
 
 ```sh
 make build
-SRC=$(mktemp -d); DST=/tmp/modelmove-live-dst
-# build a tiny HF-shaped tree in $SRC, then:
-./bin/modelmove copy "$SRC" "ubuntu@127.0.0.1:$DST" --remote-bin "$PWD/bin/modelmove" --no-progress
-./bin/modelmove verify "$DST" --no-progress
+./scripts/e2e.sh
+./scripts/e2e-live.sh
 ```
-
-Localhost SSH must work as `ubuntu@127.0.0.1` without a password.
 
 ## Layout
 

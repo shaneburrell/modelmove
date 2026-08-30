@@ -70,6 +70,14 @@ fmt-check: ## Fail if the tree is not formatted
 tidy: ## Tidy go.mod
 	go mod tidy
 
+.PHONY: e2e
+e2e: build ## Local + fake-SSH smoke
+	./scripts/e2e.sh
+
+.PHONY: e2e-live
+e2e-live: build ## Live sshd smoke (skips if ubuntu@127.0.0.1 is unreachable)
+	./scripts/e2e-live.sh
+
 .PHONY: check
 check: fmt-check vet lint test ## Everything CI runs
 
