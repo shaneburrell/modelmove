@@ -181,7 +181,11 @@ func Verify(ctx context.Context, cfg VerifyConfig) (*VerifyResult, error) {
 	res.OK = len(problems) == 0
 
 	if cfg.Extra {
-		res.Extra = extraFiles(root, m, cfg.Warn)
+		extra, err := extraFiles(root, m, cfg.Warn)
+		if err != nil {
+			return nil, fmt.Errorf("engine: listing extra files: %w", err)
+		}
+		res.Extra = extra
 		if len(res.Extra) > 0 {
 			res.OK = false
 		}
@@ -265,10 +269,10 @@ func badChunks(ctx context.Context, ra *os.File, f *manifest.File) ([]BadChunk, 
 	return out, bytes
 }
 
-func extraFiles(root string, m *manifest.Manifest, warn func(string, ...any)) []string {
+func extraFiles(root string, m *manifest.Manifest, warn func(string, ...any)) ([]string, error) {
 	entries, err := scan.Walk(scan.Options{Root: root, IncludeHidden: true, Warn: warn})
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	known := make(map[string]struct{}, len(m.Files))
 	for _, f := range m.Files {
@@ -281,5 +285,5 @@ func extraFiles(root string, m *manifest.Manifest, warn func(string, ...any)) []
 		}
 	}
 	sort.Strings(extra)
-	return extra
+	return extra, nil
 }

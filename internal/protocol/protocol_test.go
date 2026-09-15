@@ -490,6 +490,28 @@ func TestServerRejectsOutOfOrderFrames(t *testing.T) {
 	}
 }
 
+func TestServerRejectsSecondPlan(t *testing.T) {
+	src := sourceDir(t)
+	dst := filepath.Join(t.TempDir(), "out")
+	m, err := scan.Build(context.Background(), scan.Options{Root: src})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	client, done := pipePair(t, ServerOptions{Root: dst})
+	if _, err := client.Plan(context.Background(), m, defaultRequest()); err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Plan(context.Background(), m, defaultRequest())
+	done()
+	if err == nil {
+		t.Fatal("the helper accepted a second plan in the same session")
+	}
+	if !bytes.Contains([]byte(err.Error()), []byte("already planned")) {
+		t.Errorf("error = %v, want it to mention already planned", err)
+	}
+}
+
 func TestCancelledContextStopsClient(t *testing.T) {
 	client, done := pipePair(t, ServerOptions{Root: t.TempDir()})
 	defer done()
@@ -536,6 +558,24 @@ func TestGzipManifestRoundTrip(t *testing.T) {
 	}
 	if !bytes.Equal(got, raw.Bytes()) {
 		t.Fatal("gunzip did not restore the manifest bytes")
+	}
+}
+
+func TestGunzipRejectsOversized(t *testing.T) {
+	payload := bytes.Repeat([]byte("x"), 64)
+	gz, err := gzipBytes(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gunzipBytesLimit(gz, 16); err == nil {
+		t.Fatal("gunzipBytesLimit accepted a payload larger than the limit")
+	}
+	got, err := gunzipBytesLimit(gz, int64(len(payload)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatal("gunzipBytesLimit rejected a payload at the limit")
 	}
 }
 

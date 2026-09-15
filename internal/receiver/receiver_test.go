@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -59,6 +60,16 @@ func apply(t *testing.T, src, dst string, opt Options) (*Plan, *Summary) {
 
 func applyManifest(t *testing.T, m *manifest.Manifest, src, dst string, opt Options) (*Plan, *Summary) {
 	t.Helper()
+	r, plan := applyFiles(t, m, src, dst, opt)
+	sum, err := r.Finish()
+	if err != nil {
+		t.Fatalf("Finish: %v", err)
+	}
+	return plan, sum
+}
+
+func applyFiles(t *testing.T, m *manifest.Manifest, src, dst string, opt Options) (*Receiver, *Plan) {
+	t.Helper()
 	opt.Root = dst
 	r, err := New(opt)
 	if err != nil {
@@ -101,11 +112,7 @@ func applyManifest(t *testing.T, m *manifest.Manifest, src, dst string, opt Opti
 			t.Fatalf("EndFile %s: %v", fp.Path, err)
 		}
 	}
-	sum, err := r.Finish()
-	if err != nil {
-		t.Fatalf("Finish: %v", err)
-	}
-	return plan, sum
+	return r, plan
 }
 
 func defaults(dst string) Options {
@@ -716,5 +723,25 @@ func TestUnderRoot(t *testing.T) {
 		if got := underRoot(tc.dir, root); got != tc.want {
 			t.Errorf("underRoot(%q, %q) = %v, want %v", tc.dir, root, got, tc.want)
 		}
+	}
+}
+
+func TestFinishFailsWhenAppliedManifestUnwritable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permissions")
+	}
+	src := sourceDir(t)
+	dst := filepath.Join(t.TempDir(), "out")
+	m := buildManifest(t, src)
+	r, _ := applyFiles(t, m, src, dst, defaults(dst))
+
+	state := filepath.Join(dst, manifest.StateDir)
+	if err := os.Chmod(state, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(state, 0o755) })
+
+	if _, err := r.Finish(); err == nil {
+		t.Fatal("Finish succeeded when the applied manifest could not be saved")
 	}
 }

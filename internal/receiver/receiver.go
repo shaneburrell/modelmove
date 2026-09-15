@@ -515,7 +515,7 @@ func (r *Receiver) Finish() (*Summary, error) {
 		applied := *r.manifest
 		applied.Model.Root = r.root
 		if err := manifest.Save(manifest.StatePath(r.root, manifest.ManifestName), &applied, manifest.EncodingJSON); err != nil {
-			r.opt.warnf("cannot record manifest: %v", err)
+			return nil, fmt.Errorf("receiver: cannot record manifest: %w", err)
 		}
 	}
 	r.cleanStage()

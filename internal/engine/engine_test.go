@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -421,6 +422,33 @@ func TestVerifyExtraFiles(t *testing.T) {
 	}
 	if !res.OK {
 		t.Error("an extra file should be ignored without --extra")
+	}
+}
+
+func TestExtraFilesWalkError(t *testing.T) {
+	_, err := extraFiles(filepath.Join(t.TempDir(), "missing"), &manifest.Manifest{}, nil)
+	if err == nil {
+		t.Fatal("extraFiles should fail when the root cannot be walked")
+	}
+}
+
+func TestVerifyExtraFailsWhenWalkFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix permissions")
+	}
+	src := sourceDir(t)
+	dst := filepath.Join(t.TempDir(), "out")
+	if _, err := Run(context.Background(), baseConfig(src, dst)); err != nil {
+		t.Fatal(err)
+	}
+	blocked := filepath.Join(dst, "blocked")
+	if err := os.Mkdir(blocked, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(blocked, 0o755) })
+
+	if _, err := Verify(context.Background(), VerifyConfig{Root: dst, Extra: true}); err == nil {
+		t.Fatal("Verify --extra should fail when the destination cannot be listed")
 	}
 }
 
