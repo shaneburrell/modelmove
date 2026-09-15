@@ -139,6 +139,10 @@ func (s *server) warn(format string, args ...any) {
 }
 
 func (s *server) handlePlan(ctx context.Context, payload []byte) error {
+	if s.recv != nil {
+		s.abort()
+		return fmt.Errorf("protocol: already planned")
+	}
 	var req PlanRequest
 	if err := DecodeJSON(payload, &req); err != nil {
 		return err
